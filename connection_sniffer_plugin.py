@@ -1,7 +1,8 @@
 # connection_sniffer_plugin.py
 
 import threading
-from scapy.all import sniff, IP, TCP, HTTPRequest
+from scapy.all import sniff, IP, TCP
+import re
 
 class ConnectionSniffer:
     def __init__(self):
@@ -51,16 +52,27 @@ class ConnectionSniffer:
                     dst_ip = packet[IP].dst
                     if packet.haslayer(TCP):
                         tcp_layer = packet.getlayer(TCP)
-                        if packet.haslayer(HTTPRequest):
-                            http_layer = packet.getlayer(HTTPRequest)
-                            host = http_layer.Host.decode() if hasattr(http_layer, 'Host') else ""
-                            path = http_layer.Path.decode() if hasattr(http_layer, 'Path') else ""
-                            url = f"http://{host}{path}"
-                            app_instance.log_message(f"URL: {url} - Packet from {src_ip} to {dst_ip}", 'green')
+                        # HTTP İsteği Kontrolü
+                        if tcp_layer.dport == 80 or tcp_layer.dport == 8080:
+                            payload = bytes(packet[TCP].payload)
+                            try:
+                                payload_str = payload.decode('utf-8', errors='ignore')
+                                # Basit bir HTTP GET isteği kontrolü
+                                if re.search(r'^GET\s+/', payload_str):
+                                    # HTTP GET isteğinden URL'yi çıkar
+                                    match = re.search(r'GET\s+(\S+)', payload_str)
+                                    if match:
+                                        path = match.group(1)
+                                        host_match = re.search(r'Host:\s+(\S+)', payload_str)
+                                        host = host_match.group(1) if host_match else ""
+                                        url = f"http://{host}{path}"
+                                        app_instance.log_message(f"URL: {url} - Packet from {src_ip} to {dst_ip}", 'green')
+                            except Exception as e:
+                                app_instance.log_message(f"HTTP payload parse hatası: {e}", 'red')
                         else:
                             app_instance.log_message(f"Packet from {src_ip} to {dst_ip}", 'green')
 
-            # Sürekli sniff yapar (daemon thread olarak çalışır, uygulama kapanınca durur)
+            # Sadece belirli hedef IP'yi filtrele
             sniff(filter=f"host {target_ip}", iface=iface, prn=packet_callback, store=0)
         except Exception as e:
             app_instance.log_message(f"Bağlantı sniffing sırasında hata ({target_ip}): {e}", 'red')
