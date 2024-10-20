@@ -168,7 +168,9 @@ class NetworkScannerApp:
                     # Eklentilere hedef kaldırıldığını bildirin
                     for plugin in self.plugins:
                         if hasattr(plugin, 'stop'):
-                            plugin.stop(ip, self.get_gateway_ip(), self.get_interface(), self)
+                            gateway_ip = self.get_gateway_ip()
+                            iface = self.get_interface()
+                            plugin.stop(ip, gateway_ip, iface, self)
         except Exception as e:
             messagebox.showerror("Hata", f"Hedef kaldırılırken bir hata oluştu:\n{e}")
 
@@ -221,33 +223,51 @@ class NetworkScannerApp:
 
     def perform_scan(self):
         try:
-            self.tree.delete(*self.tree.get_children())
-            local_ip = self.get_local_ip()
+            self.tree.delete(*self.tree.get_children())  # Mevcut cihaz listesini temizle
+            local_ip = self.get_local_ip()  # Yerel IP'yi al
             ip_parts = local_ip.split('.')
             if len(ip_parts) != 4:
                 self.log_message("Yerel IP adresi geçersiz.", 'red')
                 return
-            network = '.'.join(ip_parts[:3]) + '.0/24'
+            network = '.'.join(ip_parts[:3]) + '.0/24'  # /24 ağını hesapla
 
-            arp = ARP(pdst=network)
-            ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+            arp = ARP(pdst=network)  # Ağda ARP taraması yap
+            ether = Ether(dst="ff:ff:ff:ff:ff:ff")  # Broadcast paketi
             packet = ether / arp
 
             try:
-                result = srp(packet, timeout=3, verbose=0)[0]
+                result = srp(packet, timeout=3, verbose=0)[0]  # Cihazları bul
             except Exception as e:
                 messagebox.showerror("Hata", f"Ağ tarama sırasında bir hata oluştu: {e}")
                 return
 
             devices = []
+            local_device_found = False  # Yerel cihazı bulma kontrolü
+
+            # Tarama sonuçlarını işle
             for sent, received in result:
                 try:
                     vendor = mac_lookup.lookup(received.hwsrc)
                 except Exception as e:
                     vendor = "Bilinmiyor"
                     print(f"Vendor lookup hatası: {e}", file=sys.stderr)
+
                 devices.append((received.psrc, received.hwsrc, vendor, "Eklenti Bekliyor"))
 
+                # Yerel cihazın tarama sonucunda görünüp görünmediğini kontrol et
+                if received.psrc == local_ip:
+                    local_device_found = True
+
+            # Yerel cihazı listede bulamazsak elle ekle
+            if not local_device_found:
+                try:
+                    local_mac = self.get_local_mac()  # Yerel MAC adresini al
+                    vendor = mac_lookup.lookup(local_mac) if local_mac else "Bilinmiyor"
+                    devices.append((local_ip, local_mac, vendor, "Yerel Cihaz"))
+                except Exception as e:
+                    self.log_message(f"Yerel cihaz eklenirken hata: {e}", 'red')
+
+            # Cihazları listeye ekle
             for device in devices:
                 self.tree.insert("", tk.END, values=device)
         except Exception as e:
@@ -294,6 +314,36 @@ class NetworkScannerApp:
         except Exception as e:
             self.log_message(f"Yerel IP alınırken hata oluştu: {e}", 'red')
             return "127.0.0.1"
+
+    def get_local_mac(self):
+        """Yerel cihazın MAC adresini alır."""
+        try:
+            local_ip = self.get_local_ip()
+            interfaces = netifaces.interfaces()
+            for iface in interfaces:
+                addresses = netifaces.ifaddresses(iface)
+                if netifaces.AF_LINK in addresses:
+                    for link in addresses[netifaces.AF_LINK]:
+                        mac = link.get('addr')
+                        if mac and len(mac.split(':')) == 6:
+                            if netifaces.AF_INET in addresses:
+                                for link_in in addresses[netifaces.AF_INET]:
+                                    ip = link_in.get('addr')
+                                    if ip == local_ip:
+                                        return mac
+            return None
+        except Exception as e:
+            self.log_message(f"Yerel MAC alınırken hata oluştu: {e}", 'red')
+            return None
+
+    def get_gateway_ip(self):
+        """Varsayılan gateway IP adresini alır."""
+        try:
+            gateways = netifaces.gateways()
+            return gateways['default'][netifaces.AF_INET][0]
+        except Exception as e:
+            self.log_message(f"Gateway IP alınırken hata oluştu: {e}", 'red')
+            return None
 
 if __name__ == "__main__":
     try:
